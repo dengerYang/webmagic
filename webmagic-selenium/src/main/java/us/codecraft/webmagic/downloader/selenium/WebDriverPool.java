@@ -1,6 +1,5 @@
 package us.codecraft.webmagic.downloader.selenium;
 
-import org.apache.log4j.Logger;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.firefox.FirefoxDriver;
@@ -8,6 +7,8 @@ import org.openqa.selenium.phantomjs.PhantomJSDriver;
 import org.openqa.selenium.phantomjs.PhantomJSDriverService;
 import org.openqa.selenium.remote.DesiredCapabilities;
 import org.openqa.selenium.remote.RemoteWebDriver;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.FileReader;
 import java.io.IOException;
@@ -27,7 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *         Time: 下午1:41 <br>
  */
 class WebDriverPool {
-	private Logger logger = Logger.getLogger(getClass());
+	private Logger logger = LoggerFactory.getLogger(getClass());
 
 	private final static int DEFAULT_CAPACITY = 5;
 
@@ -45,7 +46,7 @@ class WebDriverPool {
 	private WebDriver mDriver = null;
 	private boolean mAutoQuitDriver = true;
 
-	private static final String CONFIG_FILE = "/Users/Bingo/Documents/workspace/webmagic/webmagic-selenium/config.ini";
+	private static final String DEFAULT_CONFIG_FILE = "/data/webmagic/webmagic-selenium/config.ini";
 	private static final String DRIVER_FIREFOX = "firefox";
 	private static final String DRIVER_CHROME = "chrome";
 	private static final String DRIVER_PHANTOMJS = "phantomjs";
@@ -64,7 +65,11 @@ class WebDriverPool {
 	public void configure() throws IOException {
 		// Read config file
 		sConfig = new Properties();
-		sConfig.load(new FileReader(CONFIG_FILE));
+		String configFile = DEFAULT_CONFIG_FILE;
+		if (System.getProperty("selenuim_config")!=null){
+			configFile = System.getProperty("selenuim_config");
+		}
+		sConfig.load(new FileReader(configFile));
 
 		// Prepare capabilities
 		sCaps = new DesiredCapabilities();

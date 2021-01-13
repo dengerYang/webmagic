@@ -1,199 +1,135 @@
 package us.codecraft.webmagic.proxy;
 
-import org.apache.http.HttpHost;
+import java.io.UnsupportedEncodingException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.Delayed;
-import java.util.concurrent.TimeUnit;
+import org.apache.commons.lang3.StringUtils;
 
-/**    
- * >>>> Proxy lifecycle 
- 
-        +----------+     +-----+
-        | last use |     | new |
-        +-----+----+     +---+-+
-              |  +------+   |
-              +->| init |<--+
-                 +--+---+
-                    |
-                    v
-                +--------+
-           +--->| borrow |
-           |    +---+----+
-           |        |+------------------+
-           |        v
-           |    +--------+
-           |    | in use |  Respone Time
-           |    +---+----+
-           |        |+------------------+
-           |        v
-           |    +--------+
-           |    | return |
-           |    +---+----+
-           |        |+-------------------+
-           |        v
-           |    +-------+   reuse interval
-           |    | delay |   (delay time)
-           |    +---+---+
-           |        |+-------------------+
-           |        v
-           |    +------+
-           |    | idle |    idle time
-           |    +---+--+
-           |        |+-------------------+
-           +--------+
- */
+public class Proxy {
 
-/**
- * Object has these status of lifecycle above.<br>
- * 
- * @author yxssfxwzy@sina.com <br>
- * @since 0.5.1
- * @see SimpleProxyPool
- */
+    private String scheme;
 
-public class Proxy implements Delayed, Serializable {
+    private String host;
 
-	private static final long serialVersionUID = 228939737383625551L;
-	public static final int ERROR_403 = 403;
-	public static final int ERROR_404 = 404;
-	public static final int ERROR_BANNED = 10000;// banned by website
-	public static final int ERROR_Proxy = 10001;// the proxy itself failed
-	public static final int SUCCESS = 200;
+    private int port;
 
-	private final HttpHost httpHost;
-	private String user;
-	private String password;
-	
+    private String username;
 
-	private int reuseTimeInterval = 1500;// ms
-	private Long canReuseTime = 0L;
-	private Long lastBorrowTime = System.currentTimeMillis();
-	private Long responseTime = 0L;
+    private String password;
 
-	private int failedNum = 0;
-	private int successNum = 0;
-	private int borrowNum = 0;
+    public static Proxy create(final URI uri) {
+        Proxy proxy = new Proxy(uri.getHost(), uri.getPort(), uri.getScheme());
+        String userInfo = uri.getUserInfo();
+        if (userInfo != null) {
+            String[] up = userInfo.split(":");
+            if (up.length == 1) {
+                proxy.username = up[0].isEmpty() ? null : up[0];
+            } else {
+                proxy.username = up[0].isEmpty() ? null : up[0];
+                proxy.password = up[1].isEmpty() ? null : up[1];
+            }
+        }
+        return proxy;
+    }
 
-	private List<Integer> failedErrorType = new ArrayList<Integer>();
+    public Proxy(String host, int port) {
+        this(host, port, null);
+    }
 
-	Proxy(HttpHost httpHost, String user, String password) {
-		this.httpHost = httpHost;
-		this.user = user;
-		this.password = password;
-		this.canReuseTime = System.nanoTime() + TimeUnit.NANOSECONDS.convert(reuseTimeInterval, TimeUnit.MILLISECONDS);
-	}
+    public Proxy(String host, int port, String scheme) {
+        this.host = host;
+        this.port = port;
+        this.scheme = scheme;
+    }
 
-	Proxy(HttpHost httpHost,  int reuseInterval, String user, String password) {
-		this.httpHost = httpHost;
-		this.user = user;
-		this.password = password;
-		this.canReuseTime = System.nanoTime() + TimeUnit.NANOSECONDS.convert(reuseInterval, TimeUnit.MILLISECONDS);
-	}
+    public Proxy(String host, int port, String username, String password) {
+        this.host = host;
+        this.port = port;
+        this.username = username;
+        this.password = password;
+    }
 
-	public int getSuccessNum() {
-		return successNum;
-	}
+    public String getScheme() {
+        return scheme;
+    }
 
-	public void successNumIncrement(int increment) {
-		this.successNum += increment;
-	}
+    public void setScheme(String scheme) {
+        this.scheme = scheme;
+    }
 
-	public Long getLastUseTime() {
-		return lastBorrowTime;
-	}
+	public String getHost() {
+        return host;
+    }
 
-	public void setLastBorrowTime(Long lastBorrowTime) {
-		this.lastBorrowTime = lastBorrowTime;
-	}
+    public int getPort() {
+        return port;
+    }
 
-	public void recordResponse() {
-		this.responseTime = (System.currentTimeMillis() - lastBorrowTime + responseTime) / 2;
-		this.lastBorrowTime = System.currentTimeMillis();
-	}
+    public String getUsername() {
+        return username;
+    }
 
-	public List<Integer> getFailedErrorType() {
-		return failedErrorType;
-	}
+    public String getPassword() {
+        return password;
+    }
 
-	public void setFailedErrorType(List<Integer> failedErrorType) {
-		this.failedErrorType = failedErrorType;
-	}
+    public URI toURI() {
+        final StringBuilder userInfoBuffer = new StringBuilder();
+        if (username != null) {
+            userInfoBuffer.append(urlencode(username));
+        }
+        if (password != null) {
+            userInfoBuffer.append(":").append(urlencode(password));
+        }
+        final String userInfo = StringUtils.defaultIfEmpty(userInfoBuffer.toString(), null);
+        URI uri;
+        try {
+            uri = new URI(scheme, userInfo, host, port, null, null, null);
+        } catch (URISyntaxException e) {
+            throw new IllegalArgumentException(e.getMessage(), e);
+        }
+        return uri;
+    }
 
-	public void fail(int failedErrorType) {
-		this.failedNum++;
-		this.failedErrorType.add(failedErrorType);
-	}
+    private String urlencode(String s) {
+        String enc = StandardCharsets.UTF_8.name();
+        try {
+            return URLEncoder.encode(s, enc);
+        } catch (UnsupportedEncodingException e) {
+            throw new IllegalArgumentException(e);
+        }
+    }
 
-	public void setFailedNum(int failedNum) {
-		this.failedNum = failedNum;
-	}
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
 
-	public int getFailedNum() {
-		return failedNum;
-	}
+        Proxy proxy = (Proxy) o;
 
-	public String getFailedType() {
-		String re = "";
-		for (Integer i : this.failedErrorType) {
-			re += i + " . ";
-		}
-		return re;
-	}
+        if (port != proxy.port) return false;
+        if (host != null ? !host.equals(proxy.host) : proxy.host != null) return false;
+        if (scheme != null ? !scheme.equals(proxy.scheme) : proxy.scheme != null) return false;
+        if (username != null ? !username.equals(proxy.username) : proxy.username != null) return false;
+        return password != null ? password.equals(proxy.password) : proxy.password == null;
+    }
 
-	public HttpHost getHttpHost() {
-		return httpHost;
-	}
+    @Override
+    public int hashCode() {
+        int result = host != null ? host.hashCode() : 0;
+        result = 31 * result + port;
+        result = 31 * result + (scheme != null ? scheme.hashCode() : 0);
+        result = 31 * result + (username != null ? username.hashCode() : 0);
+        result = 31 * result + (password != null ? password.hashCode() : 0);
+        return result;
+    }
 
-	public int getReuseTimeInterval() {
-		return reuseTimeInterval;
-	}
+    @Override
+    public String toString() {
+        return this.toURI().toString();
+    }
 
-	public void setReuseTimeInterval(int reuseTimeInterval) {
-		this.reuseTimeInterval = reuseTimeInterval;
-		this.canReuseTime = System.nanoTime() + TimeUnit.NANOSECONDS.convert(reuseTimeInterval, TimeUnit.MILLISECONDS);
-
-	}
-
-	@Override
-	public long getDelay(TimeUnit unit) {
-		return unit.convert(canReuseTime - System.nanoTime(), TimeUnit.NANOSECONDS);
-	}
-
-	@Override
-	public int compareTo(Delayed o) {
-		Proxy that = (Proxy) o;
-		return canReuseTime > that.canReuseTime ? 1 : (canReuseTime < that.canReuseTime ? -1 : 0);
-
-	}
-
-	@Override
-	public String toString() {
-
-		String re = String.format("host: %15s >> %5dms >> success: %-3.2f%% >> borrow: %d", httpHost.getAddress().getHostAddress(), responseTime,
-				successNum * 100.0 / borrowNum, borrowNum);
-		return re;
-
-	}
-	
-	public String getUser()
-	{
-		return user;
-		
-	}
-	public String getPassword()
-	{
-		return password;
-		
-	}
-
-	public void borrowNumIncrement(int increment) {
-		this.borrowNum += increment;
-	}
-
-	public int getBorrowNum() {
-		return borrowNum;
-	}
 }
